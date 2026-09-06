@@ -1,0 +1,17 @@
+# Air-gapped, but matched to Inspect's working sandbox_agent_bridge example:
+# network_mode: none keeps the container off the internet while loopback stays up
+# for the in-container bridge proxy (pi -> localhost:<port> -> host relays to model).
+#
+# NOTE: the extra hardening (cap_drop/no-new-privileges/pids_limit) was removed —
+# it broke the injected bridge proxy (pi got "connection error"). Re-add flags one
+# at a time and re-test if you want to tighten this.
+services:
+  default:
+    build:
+      context: .
+      dockerfile: Dockerfile.multistage
+    init: true
+    command: tail -f /dev/null
+    network_mode: none      # no internet; loopback (the bridge) stays available
+    cpus: 2.0
+    mem_limit: 2g

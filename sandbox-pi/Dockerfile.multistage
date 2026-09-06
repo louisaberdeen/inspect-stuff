@@ -1,0 +1,58 @@
+# Multi-stage build. Builders HAVE network; the final agent image gets only
+# copied results and has NO network at run time (compose.yaml: network_mode: none).
+#
+#  - stage `builder`   : installs pi and clones the repo (needs network).
+#  - stage `pybuilder` : a full CPython we copy the interpreter out of.
+#  - final image       : pi + a copied Python + the repo SOURCE (click is NOT
+#                        installed — the agent must work out how to use it).
+
+# ---- stage 1: pi + repo (network available) ----
+FROM node:22-bookworm AS builder
+RUN curl -fsSL https://pi.dev/install.sh | sh
+RUN git clone --depth 1 --branch 8.1.7 https://github.com/pallets/click.git /build/repo
+
+# ---- stage 2: a CPython to copy from (installed here, not in the final image) ----
+FROM python:3.12-slim-bookworm AS pybuilder
+
+# ---- final: the air-gapped image the agent works in ----
+FROM node:22-bookworm-slim
+
+# pi (@earendil-works/pi-coding-agent) + bin symlink (recreated, not COPied, so
+# the bundle's relative ./chunks imports still resolve).
+COPY --from=builder /usr/local/lib/node_modules/@earendil-works /usr/local/lib/node_modules/@earendil-works
+RUN ln -s ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js /usr/local/bin/pi
+
+# Register a custom pi provider pointing at the in-container Inspect bridge
+# (pi ignores OPENAI_BASE_URL for built-in providers, so this is required).
+RUN mkdir -p /opt/pi-bridge && cat > /opt/pi-bridge/index.ts <<'TS'
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+export default function (pi: ExtensionAPI) {
+  pi.registerProvider("vllm", {
+    name: "Inspect Bridge",
+    baseUrl: "http://127.0.0.1:13131/v1",
+    apiKey: "inspect-bridge",
+    api: "openai-completions",
+    models: [{
+      id: "inspect", name: "Inspect Bridge Model",
+      reasoning: true, input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 8192, maxTokens: 2048,
+      compat: { maxTokensField: "max_tokens", supportsReasoningEffort: false }
+    }]
+  });
+}
+TS
+RUN pi install /opt/pi-bridge -a
+
+# Python COPIED from the pybuilder stage (no apt/pip/network in this image).
+# Just the interpreter + shared lib + stdlib; the binary's RPATH finds libpython.
+COPY --from=pybuilder /usr/local/bin/python3.12 /usr/local/bin/python3.12
+COPY --from=pybuilder /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/libpython3.12.so.1.0
+COPY --from=pybuilder /usr/local/lib/python3.12 /usr/local/lib/python3.12
+RUN ln -sf python3.12 /usr/local/bin/python3 && ln -sf python3.12 /usr/local/bin/python
+
+# The repo SOURCE only — click is deliberately NOT installed. The agent has to
+# figure out how to import it from /workspace/repo/src (e.g. via PYTHONPATH).
+COPY --from=builder /build/repo /workspace/repo
+
+WORKDIR /workspace

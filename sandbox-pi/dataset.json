@@ -1,0 +1,22 @@
+[
+  {
+    "input": "Read the license file at /workspace/repo/LICENSE.rst and report the name of the copyright holder.",
+    "target": "Pallets"
+  },
+  {
+    "input": "Using Python in the sandbox, import click and print its version (click.__version__). Report the version string.",
+    "target": "8.1.7"
+  },
+  {
+    "input": "Write a small Python script that uses the click library to define a command which prints exactly 'hello sandbox', run the script, and report its output.",
+    "target": "hello sandbox"
+  },
+  {
+    "input": "In the click source under /workspace/repo/src/click, which file defines the `Command` class? Report just the filename.",
+    "target": "core.py"
+  },
+  {
+    "input": "Use Python in the sandbox to compute 2**20 and report the resulting number.",
+    "target": "1048576"
+  }
+]

@@ -1,0 +1,15 @@
+# Two-stage build: stage 1 (builder) HAS network and fetches; stage 2 is the
+# image the agent interrogates, getting only the CONTENT via COPY --from —
+# no git/curl/network tools ship in it. compose.yaml runs it with network_mode: none.
+
+# ---- stage 1: builder (network available) ----
+FROM debian:bookworm-slim AS builder
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/octocat/Hello-World.git /build/repo
+
+# ---- stage 2: final image the agent interrogates (no fetch tools) ----
+FROM python:3.12-slim
+COPY --from=builder /build/repo /workspace/repo
+WORKDIR /workspace
