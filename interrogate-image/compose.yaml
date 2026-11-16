@@ -1,0 +1,15 @@
+services:
+  default:
+    build:
+      context: .
+      dockerfile: Dockerfile.multistage   # builder downloads so final image gets only content
+    command: tail -f /dev/null
+
+    network_mode: none                     # no connectivity
+    cap_drop: [ALL]                        # drop all Linux capabilities
+    security_opt: ["no-new-privileges:true"]  # can't gain privileges via setuid
+    pids_limit: 512                        # bound fork-bomb / resource abuse
+    cpus: 2.0
+    mem_limit: 2g
+    # NOT privileged, NO docker.sock mount, NO host networking — never for a
+    # sandbox meant to isolate an agent.

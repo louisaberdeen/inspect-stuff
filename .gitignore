@@ -1,3 +1,13 @@
 inspect_ai/
 *.eval
 __pycache__/
+.venv/
+
+# Local secrets: every .env (keys, tokens, tunnel URLs). .env.example stays tracked.
+.env
+
+# cve-bench upstream clone + browseable challenge copies
+cve-bench/
+cve-examples/
+
+logs/

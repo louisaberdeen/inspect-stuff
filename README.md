@@ -15,8 +15,11 @@ proven, this README says so plainly (see "Tested assumptions" at the end).
 | Folder | What it does |
 |--------|--------------|
 | `colab-vllm/` | Start a model on a Colab A100 with vLLM, tunnel it out, and drive it all from your laptop terminal. `RUN.md` has the exact commands. |
-| `interogate-image/` | An agent that runs **on your laptop** and pokes a sandbox container with the `bash` tool. Simple and reliable. |
+| `interrogate-image/` | An agent that runs **on your laptop** and pokes a sandbox container with the `bash` tool. Simple and reliable. |
 | `sandbox-pi/` | The **pi** coding agent running **inside** the container, reaching the model through Inspect's bridge — with **no internet** in the container. |
+| `cve-bench-pi/` | Runs **CVE-Bench** (40 web-app CVEs) through the pi agent on the Colab-vLLM model. `./run.sh` for one, `./overnight.sh` for an auto-recovering batch. `README.md` has the runbook. |
+| `proxmox-pi/` | Same pi agent, but in an offline **Proxmox VM**. `./run.sh <hf-dataset-link> <hf-model-link>` serves the model on Colab and runs the dataset. Setup: `PROXMOX.md`. *Not yet run end to end.* |
+| `transect/` | Analyse the `.eval` traces with **Transect** (AISI, on Inspect Scout) — a structural pass is free; judged passes label exploit phases. `./analyse.py`; `README.md` has setup. |
 
 `inspect_ai/` is the upstream framework checkout; not our code.
 
@@ -24,12 +27,14 @@ proven, this README says so plainly (see "Tested assumptions" at the end).
 
 ## How it fits together
 
-1. **Model** lives on the Colab A100 (vLLM). Your laptop reaches it over a
-   Cloudflare tunnel. Inspect talks to it like any other model provider.
+1. **Model** lives on the Colab A100 (vLLM). Your laptop reaches it over a fixed
+   Cloudflare **named tunnel** — a stable hostname that survives VM restarts, so
+   when Colab reclaims the A100 the endpoint address doesn't change. Inspect
+   talks to it like any other model provider.
 2. **Sandbox** is a Docker container that runs **on your laptop** (not on
    Colab). It's where the agent's shell commands actually run.
 3. Two ways to connect an agent to the container:
-   - **Host-driven** (`interogate-image/`): the agent runs on the laptop and
+   - **Host-driven** (`interrogate-image/`): the agent runs on the laptop and
      sends `bash` commands into the container.
    - **In-container** (`sandbox-pi/`): the agent (pi) runs *inside* the
      container and reaches the model through a small proxy Inspect starts in
@@ -76,10 +81,20 @@ Rule we keep: **never** `privileged`, **never** mount the Docker socket, and
   (Full-size 27B/32B in fp16 does **not** fit; FP8 is a bad fit on A100 — it
   has no FP8 hardware.)
 - Air-gap holds: content is baked in at build, internet is blocked at run time.
-- `interogate-image/` (host bash agent) scores 100% on its check.
+- `interrogate-image/` (host bash agent) scores 100% on its check.
 - `sandbox-pi/`: **fully working, scores 100%.** pi runs inside the air-gapped
   container, reaches the model through the bridge (no internet), makes real tool
   calls (reads the file), and answers correctly.
+
+---
+
+## Candidate models for the 40 GB A100 (not yet tried)
+
+| Model | Notes |
+|-------|-------|
+| [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | Best quality that fits. Use an AWQ/GPTQ int4 quant (skip NVFP4, which is for Blackwell GPUs). Needs vLLM >= 0.17. Fake repos use this name, so stick to the official one or a known quantizer. |
+| [zai-org/GLM-4.7-Flash](https://huggingface.co/zai-org/GLM-4.7-Flash) | 30B MoE, ~3B active, so it's fast. Good at agent/tool use. Use a 4-bit quant (BF16 is ~60 GB). Needs a GLM tool-call parser, not `hermes`. |
+| [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) | ~14 GB, fast, solid vLLM support. Weaker than the two above. |
 
 ---
 

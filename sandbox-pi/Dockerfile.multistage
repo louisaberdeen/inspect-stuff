@@ -17,10 +17,12 @@ FROM python:3.12-slim-bookworm AS pybuilder
 # ---- final: the air-gapped image the agent works in ----
 FROM node:22-bookworm-slim
 
-# pi (@earendil-works/pi-coding-agent) + bin symlink (recreated, not COPied, so
-# the bundle's relative ./chunks imports still resolve).
-COPY --from=builder /usr/local/lib/node_modules/@earendil-works /usr/local/lib/node_modules/@earendil-works
-RUN ln -s ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js /usr/local/bin/pi
+# pi (@earendil-works/pi-coding-agent). pi 1.3.0's installer puts everything
+# under /root/.pi (versioned release + self-contained node_modules) with a
+# launcher at /root/.pi/agent/bin/pi; copy that tree whole and expose the
+# launcher. The base already has node, so the launcher's `node` resolves.
+COPY --from=builder /root/.pi /root/.pi
+RUN ln -sf /root/.pi/agent/bin/pi /usr/local/bin/pi
 
 # Register a custom pi provider pointing at the in-container Inspect bridge
 # (pi ignores OPENAI_BASE_URL for built-in providers, so this is required).
@@ -42,6 +44,30 @@ export default function (pi: ExtensionAPI) {
   });
 }
 TS
+# Ride-through for a Colab A100 reclaim. A reclaim kills the tunnel, so the pending
+# call fails with a fast CONNECTION ERROR — maxRetries 100 catches that and retries
+# across the ~15min rebuild until the endpoint is back and the sample resumes.
+# httpIdleTimeoutMs must NOT be aggressive: this reasoning model's long think phases
+# stream few/no bytes for minutes, so a short idle timeout abandons a healthy
+# generation mid-think, pi retries, vLLM keeps the orphan running, and retries pile
+# up faster than they complete — a retry storm that pins the sample on one turn.
+# 10min is safely above the longest no-byte gap; only a dead endpoint triggers a
+# retry. provider.timeoutMs 10min caps one attempt. MUST precede `pi install`, which
+# merges its "packages" key into this same settings.json (writing it after would
+# drop the extension → "Unknown provider vllm").
+# compaction sized for the 32k window. reserveTokens is the room left for a
+# generation when compaction fires (trigger = 32768 − reserve); it must cover the
+# compaction SUMMARY call's own output, and on a reasoning model that emits a long
+# think — so 8192 was too tight (triggered at ~24.5k, only ~4.7k to summarize into,
+# blew the wall and looped). 14000 triggers at ~18.7k, leaving ~14k for the summary's
+# thinking; keepRecent 8000 shrinks context to ~10k. Normal-turn reasoning uncapped.
+RUN mkdir -p /root/.pi/agent && cat > /root/.pi/agent/settings.json <<'JSON'
+{
+  "httpIdleTimeoutMs": 600000,
+  "retry": { "enabled": true, "maxRetries": 100, "provider": { "timeoutMs": 600000 } },
+  "compaction": { "enabled": true, "reserveTokens": 14000, "keepRecentTokens": 8000 }
+}
+JSON
 RUN pi install /opt/pi-bridge -a
 
 # Python COPIED from the pybuilder stage (no apt/pip/network in this image).
